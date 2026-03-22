@@ -1,0 +1,9 @@
+django==4.2.29
+djangorestframework==3.16.1
+psycopg2-binary==2.9.11
+jsonschema==4.25.1
+
+# Dev / testing
+pytest==8.4.2
+pytest-django==4.11.1
+pytest-cov==7.1.0
