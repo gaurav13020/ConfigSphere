@@ -38,35 +38,15 @@ class ConfigVersionService:
         checksum = compute_checksum(payload)
         version_number = ConfigVersionService._next_version_number(item)
 
-        validation_status = VersionStatus.VALIDATED
-        validation_error = ""
-
-        if item.schema is not None:
-            valid, error_msg = SchemaValidationService.validate(payload, item.schema)
-            if valid:
-                AuditService.record(
-                    event_type=AuditEventType.VALIDATION_PASSED,
-                    actor=created_by,
-                    config_item_id=item.id,
-                    metadata={"version_number": version_number},
-                )
-            else:
-                validation_status = VersionStatus.DRAFT
-                validation_error = error_msg
-                AuditService.record(
-                    event_type=AuditEventType.VALIDATION_FAILED,
-                    actor=created_by,
-                    config_item_id=item.id,
-                    metadata={"version_number": version_number, "error": error_msg},
-                )
-
+        # All new versions start as DRAFT, regardless of schema
+        # Validation happens explicitly when user clicks Validate button
         version = ConfigVersion.objects.create(
             config_item=item,
             version_number=version_number,
             payload=payload,
             checksum=checksum,
-            status=validation_status,
-            validation_error=validation_error,
+            status=VersionStatus.DRAFT,
+            validation_error="",
             change_summary=change_summary,
             created_by=created_by,
         )
@@ -78,7 +58,7 @@ class ConfigVersionService:
             config_version_id=version.id,
             metadata={
                 "version_number": version_number,
-                "status": validation_status,
+                "status": VersionStatus.DRAFT,
                 "checksum": checksum,
             },
         )

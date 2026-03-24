@@ -1,4 +1,4 @@
-#!/bin/sh
+﻿#!/bin/sh
 
 echo "Waiting for PostgreSQL to be ready..."
 
@@ -16,7 +16,7 @@ try:
 except Exception:
     sys.exit(1)
 " 2>/dev/null; do
-    echo "  PostgreSQL not ready yet — retrying in 1s..."
+    echo "  PostgreSQL not ready yet â€” retrying in 1s..."
     sleep 1
 done
 
@@ -27,3 +27,4 @@ python manage.py migrate --noinput
 
 echo "Starting server..."
 exec python manage.py runserver 0.0.0.0:8000
+

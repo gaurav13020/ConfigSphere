@@ -2,11 +2,13 @@ from django.urls import path
 
 from .views import (
     ActivateConfigVersionView,
+    ArchiveConfigVersionView,
     ConfigItemDetailView,
     ConfigItemListCreateView,
     ConfigVersionDetailView,
     ConfigVersionListCreateView,
     ResolvedConfigView,
+    ValidateConfigVersionView,
 )
 
 urlpatterns = [
@@ -20,6 +22,8 @@ urlpatterns = [
     # Config version standalone (for activation and detail)
     path("config-versions/<int:pk>/", ConfigVersionDetailView.as_view(), name="config-version-detail"),
     path("config-versions/<int:pk>/activate/", ActivateConfigVersionView.as_view(), name="config-version-activate"),
+    path("config-versions/<int:pk>/validate/", ValidateConfigVersionView.as_view(), name="config-version-validate"),
+    path("config-versions/<int:pk>/archive/", ArchiveConfigVersionView.as_view(), name="config-version-archive"),
 
     # Resolved config
     path("resolved-config/", ResolvedConfigView.as_view(), name="resolved-config"),

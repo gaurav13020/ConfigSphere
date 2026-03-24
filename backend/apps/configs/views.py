@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audits.services import AuditService
-from common.constants import AuditEventType
+from common.constants import AuditEventType, VersionStatus
 from common.exceptions import NotFoundError
 from .models import ConfigItem, ConfigVersion
 from .selectors import get_config_items, get_config_versions_for_item
@@ -21,6 +21,7 @@ from .services import (
     ConfigItemService,
     ConfigVersionService,
     HierarchyResolutionService,
+    SchemaValidationService,
 )
 
 
@@ -62,6 +63,52 @@ class ConfigItemDetailView(APIView):
         except ConfigItem.DoesNotExist:
             raise NotFoundError(f"ConfigItem with id={pk} does not exist.")
         return Response(ConfigItemSerializer(item).data)
+
+    def put(self, request, pk):
+        try:
+            item = ConfigItem.objects.get(pk=pk)
+        except ConfigItem.DoesNotExist:
+            raise NotFoundError(f"ConfigItem with id={pk} does not exist.")
+        
+        serializer = ConfigItemCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+
+        item.key = d.get("key", item.key)
+        item.scope_level = d.get("scope_level", item.scope_level)
+        item.global_name = d.get("global_name", item.global_name)
+        item.description = d.get("description", item.description)
+        
+        # Set scope fields based on scope_level (use empty string for unused levels)
+        if item.scope_level in ['region', 'group', 'service']:
+            item.region_name = d.get("region_name", item.region_name)
+        else:
+            item.region_name = ""
+            
+        if item.scope_level in ['group', 'service']:
+            item.group_name = d.get("group_name", item.group_name)
+        else:
+            item.group_name = ""
+            
+        if item.scope_level == 'service':
+            item.service_name = d.get("service_name", item.service_name)
+        else:
+            item.service_name = ""
+        
+        if "schema_id" in d:
+            item.schema_id = d["schema_id"]
+        
+        item.save()
+        return Response(ConfigItemSerializer(item).data)
+
+    def delete(self, request, pk):
+        try:
+            item = ConfigItem.objects.get(pk=pk)
+        except ConfigItem.DoesNotExist:
+            raise NotFoundError(f"ConfigItem with id={pk} does not exist.")
+        
+        item.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # ── ConfigVersion ────────────────────────────────────────────────────────────
@@ -110,6 +157,91 @@ class ActivateConfigVersionView(APIView):
     def post(self, request, pk):
         actor = request.data.get("actor")
         version = ActivationService.activate(version_id=pk, actor=actor)
+        return Response(ConfigVersionSerializer(version).data)
+
+
+class ValidateConfigVersionView(APIView):
+    """
+    POST /api/v1/config-versions/{id}/validate/
+    Body: { "actor": "optional-username" }
+    
+    Validates a DRAFT version and moves it to VALIDATED if validation passes.
+    """
+
+    def post(self, request, pk):
+        try:
+            version = ConfigVersion.objects.select_related("config_item", "config_item__schema").get(pk=pk)
+        except ConfigVersion.DoesNotExist:
+            raise NotFoundError(f"ConfigVersion with id={pk} does not exist.")
+        
+        actor = request.data.get("actor")
+        
+        # If already validated, just return success
+        if version.status == VersionStatus.VALIDATED:
+            return Response(ConfigVersionSerializer(version).data)
+        
+        # If not draft, cannot validate
+        if version.status != VersionStatus.DRAFT:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError(f"Version is {version.status}, not draft. Cannot validate.")
+        
+        # Validate the payload against schema
+        if version.config_item.schema is not None:
+            valid, error_msg = SchemaValidationService.validate(version.payload, version.config_item.schema)
+            if valid:
+                version.status = VersionStatus.VALIDATED
+                version.validation_error = ""
+                version.save(update_fields=['status', 'validation_error'])
+                
+                AuditService.record(
+                    event_type=AuditEventType.VALIDATION_PASSED,
+                    actor=actor,
+                    config_item_id=version.config_item_id,
+                    config_version_id=version.id,
+                    metadata={"version_number": version.version_number},
+                )
+            else:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError(f"Validation failed: {error_msg}")
+        else:
+            # No schema, just move to validated
+            version.status = VersionStatus.VALIDATED
+            version.save(update_fields=['status'])
+        
+        return Response(ConfigVersionSerializer(version).data)
+
+
+class ArchiveConfigVersionView(APIView):
+    """
+    POST /api/v1/config-versions/{id}/archive/
+    Body: { "actor": "optional-username" }
+    
+    Archives an ACTIVE version.
+    """
+
+    def post(self, request, pk):
+        try:
+            version = ConfigVersion.objects.select_related("config_item").get(pk=pk)
+        except ConfigVersion.DoesNotExist:
+            raise NotFoundError(f"ConfigVersion with id={pk} does not exist.")
+        
+        actor = request.data.get("actor")
+        
+        if version.status != VersionStatus.ACTIVE:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError(f"Version is {version.status}, not active. Cannot archive.")
+        
+        version.status = VersionStatus.ARCHIVED
+        version.save(update_fields=['status'])
+        
+        AuditService.record(
+            event_type=AuditEventType.VERSION_ARCHIVED,
+            actor=actor,
+            config_item_id=version.config_item_id,
+            config_version_id=version.id,
+            metadata={"version_number": version.version_number},
+        )
+        
         return Response(ConfigVersionSerializer(version).data)
 
 
