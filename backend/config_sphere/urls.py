@@ -8,4 +8,5 @@ urlpatterns = [
     path(API_PREFIX, include("apps.schemas.urls")),
     path(API_PREFIX, include("apps.configs.urls")),
     path(API_PREFIX, include("apps.audits.urls")),
+    path(API_PREFIX, include("apps.approvals.urls")),
 ]
