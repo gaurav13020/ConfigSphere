@@ -9,6 +9,7 @@ services:
       POSTGRES_PASSWORD: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
     ports:
       - "5432:5432"
     healthcheck:
@@ -20,18 +21,27 @@ services:
   web:
     build: .
     container_name: configsphere_web
+    env_file:
+      - .env
     environment:
-      DJANGO_SETTINGS_MODULE: config_sphere.settings.local
-      DB_NAME: configsphere
-      DB_USER: postgres
-      DB_PASSWORD: postgres
       DB_HOST: db
-      DB_PORT: "5432"
-      DJANGO_SECRET_KEY: local-docker-secret-key-replace-in-prod
     ports:
       - "8000:8000"
     volumes:
       - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+
+  auth:
+    build: ../auth-service
+    container_name: configsphere_auth
+    env_file:
+      - ../auth-service/.env
+    ports:
+      - "8001:8001"
+    volumes:
+      - ../auth-service:/app
     depends_on:
       db:
         condition: service_healthy
@@ -43,6 +53,7 @@ services:
     container_name: configsphere_frontend
     environment:
       VITE_API_URL: http://localhost:8000/api/v1
+      VITE_AUTH_URL: http://localhost:8001/api/v1
     ports:
       - "3000:3000"
     volumes:
@@ -50,6 +61,7 @@ services:
       - /app/node_modules
     depends_on:
       - web
+      - auth
 
 volumes:
   postgres_data:

@@ -7,10 +7,19 @@ from django.db.models.deletion import ProtectedError
 from .models import SchemaDefinition
 from .serializers import SchemaDefinitionCreateSerializer, SchemaDefinitionSerializer, SchemaDefinitionUpdateSerializer
 from .services import SchemaService
+from common.authentication import JiraJWTAuthentication
 from common.exceptions import NotFoundError
+from common.permissions import IsAdmin, IsOperator, IsViewer
 
 
 class SchemaDefinitionListCreateView(APIView):
+    authentication_classes = [JiraJWTAuthentication]
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsOperator()]
+        return [IsViewer()]
+
     def get(self, request):
         schemas = SchemaDefinition.objects.all()
         serializer = SchemaDefinitionSerializer(schemas, many=True)
@@ -30,6 +39,15 @@ class SchemaDefinitionListCreateView(APIView):
 
 
 class SchemaDefinitionDetailView(APIView):
+    authentication_classes = [JiraJWTAuthentication]
+
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAdmin()]
+        if self.request.method == "PUT":
+            return [IsOperator()]
+        return [IsViewer()]
+
     def get(self, request, pk):
         try:
             schema = SchemaDefinition.objects.get(pk=pk)

@@ -5,8 +5,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.audits.services import AuditService
+from common.authentication import JiraJWTAuthentication
 from common.constants import AuditEventType, VersionStatus
 from common.exceptions import NotFoundError
+from common.permissions import IsAdmin, IsApprover, IsOperator, IsViewer
 from .models import ConfigItem, ConfigVersion
 from .selectors import get_config_items, get_config_versions_for_item
 from .serializers import (
@@ -28,6 +30,13 @@ from .services import (
 # ── ConfigItem ───────────────────────────────────────────────────────────────
 
 class ConfigItemListCreateView(APIView):
+    authentication_classes = [JiraJWTAuthentication]
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsOperator()]
+        return [IsViewer()]
+
     def get(self, request):
         items = get_config_items(
             scope_level=request.query_params.get("scope_level"),
@@ -57,6 +66,15 @@ class ConfigItemListCreateView(APIView):
 
 
 class ConfigItemDetailView(APIView):
+    authentication_classes = [JiraJWTAuthentication]
+
+    def get_permissions(self):
+        if self.request.method == "DELETE":
+            return [IsAdmin()]
+        if self.request.method == "PUT":
+            return [IsOperator()]
+        return [IsViewer()]
+
     def get(self, request, pk):
         try:
             item = ConfigItem.objects.select_related("schema", "active_version").get(pk=pk)
@@ -119,6 +137,13 @@ class ConfigVersionListCreateView(APIView):
     POST /api/v1/config-items/{id}/versions/  — create a new version
     """
 
+    authentication_classes = [JiraJWTAuthentication]
+
+    def get_permissions(self):
+        if self.request.method == "POST":
+            return [IsOperator()]
+        return [IsViewer()]
+
     def get(self, request, item_pk):
         versions = get_config_versions_for_item(item_pk)
         return Response(ConfigVersionSerializer(versions, many=True).data)
@@ -138,6 +163,9 @@ class ConfigVersionListCreateView(APIView):
 
 
 class ConfigVersionDetailView(APIView):
+    authentication_classes = [JiraJWTAuthentication]
+    permission_classes = [IsViewer]
+
     def get(self, request, pk):
         try:
             version = ConfigVersion.objects.select_related("config_item").get(pk=pk)
@@ -151,11 +179,28 @@ class ConfigVersionDetailView(APIView):
 class ActivateConfigVersionView(APIView):
     """
     POST /api/v1/config-versions/{id}/activate/
-    Body: { "actor": "optional-username" }
+    Requires Approver role or above.
     """
 
+    authentication_classes = [JiraJWTAuthentication]
+    permission_classes = [IsApprover]
+
     def post(self, request, pk):
-        actor = request.data.get("actor")
+        # If an ApprovalRequest exists for this version it must be APPROVED
+        from apps.approvals.models import ApprovalRequest, ApprovalStatus
+        from common.exceptions import ActivationError
+        try:
+            approval = ApprovalRequest.objects.get(config_version_id=pk)
+            if approval.status != ApprovalStatus.APPROVED:
+                raise ActivationError(
+                    f"Version has a pending approval request (status={approval.status}). "
+                    f"It must be approved before activation. "
+                    f"Jira: {approval.jira_issue_key or 'ticket not yet created'}"
+                )
+        except ApprovalRequest.DoesNotExist:
+            pass  # No approval request — Approver can activate directly
+
+        actor = getattr(request.user, "email", request.data.get("actor"))
         version = ActivationService.activate(version_id=pk, actor=actor)
         return Response(ConfigVersionSerializer(version).data)
 
@@ -163,18 +208,20 @@ class ActivateConfigVersionView(APIView):
 class ValidateConfigVersionView(APIView):
     """
     POST /api/v1/config-versions/{id}/validate/
-    Body: { "actor": "optional-username" }
-    
     Validates a DRAFT version and moves it to VALIDATED if validation passes.
+    Requires Operator role or above.
     """
+
+    authentication_classes = [JiraJWTAuthentication]
+    permission_classes = [IsOperator]
 
     def post(self, request, pk):
         try:
             version = ConfigVersion.objects.select_related("config_item", "config_item__schema").get(pk=pk)
         except ConfigVersion.DoesNotExist:
             raise NotFoundError(f"ConfigVersion with id={pk} does not exist.")
-        
-        actor = request.data.get("actor")
+
+        actor = getattr(request.user, "email", request.data.get("actor"))
         
         # If already validated, just return success
         if version.status == VersionStatus.VALIDATED:
@@ -214,18 +261,19 @@ class ValidateConfigVersionView(APIView):
 class ArchiveConfigVersionView(APIView):
     """
     POST /api/v1/config-versions/{id}/archive/
-    Body: { "actor": "optional-username" }
-    
-    Archives an ACTIVE version.
+    Archives an ACTIVE version. Requires Approver role or above.
     """
+
+    authentication_classes = [JiraJWTAuthentication]
+    permission_classes = [IsApprover]
 
     def post(self, request, pk):
         try:
             version = ConfigVersion.objects.select_related("config_item").get(pk=pk)
         except ConfigVersion.DoesNotExist:
             raise NotFoundError(f"ConfigVersion with id={pk} does not exist.")
-        
-        actor = request.data.get("actor")
+
+        actor = getattr(request.user, "email", request.data.get("actor"))
         
         if version.status != VersionStatus.ACTIVE:
             from rest_framework.exceptions import ValidationError
@@ -253,7 +301,11 @@ class ResolvedConfigView(APIView):
 
     Returns the merged effective configuration for a given scope.
     Supports ETag via checksum in response — clients can send If-None-Match later.
+    Requires Viewer role or above (microservices use a service-account JWT).
     """
+
+    authentication_classes = [JiraJWTAuthentication]
+    permission_classes = [IsViewer]
 
     def get(self, request):
         service_name = request.query_params.get("service")

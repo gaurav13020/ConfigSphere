@@ -53,3 +53,13 @@ class AuditEventType:
     VERSION_ACTIVATED = "version_activated"
     VERSION_ARCHIVED = "version_archived"
     RESOLVED_CONFIG_FETCHED = "resolved_config_fetched"
+    APPROVAL_SUBMITTED = "approval_submitted"
+    APPROVAL_APPROVED = "approval_approved"
+    APPROVAL_REJECTED = "approval_rejected"
+
+
+class ConfigSphereRole:
+    VIEWER = "viewer"
+    OPERATOR = "operator"
+    APPROVER = "approver"
+    ADMIN = "admin"

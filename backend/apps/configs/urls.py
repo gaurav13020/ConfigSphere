@@ -1,5 +1,6 @@
 from django.urls import path
 
+from apps.approvals.views import ApprovalDetailView, SubmitForApprovalView
 from .views import (
     ActivateConfigVersionView,
     ArchiveConfigVersionView,
@@ -19,11 +20,13 @@ urlpatterns = [
     # Config versions (nested under item)
     path("config-items/<int:item_pk>/versions/", ConfigVersionListCreateView.as_view(), name="config-version-list-create"),
 
-    # Config version standalone (for activation and detail)
+    # Config version standalone
     path("config-versions/<int:pk>/", ConfigVersionDetailView.as_view(), name="config-version-detail"),
-    path("config-versions/<int:pk>/activate/", ActivateConfigVersionView.as_view(), name="config-version-activate"),
     path("config-versions/<int:pk>/validate/", ValidateConfigVersionView.as_view(), name="config-version-validate"),
+    path("config-versions/<int:pk>/activate/", ActivateConfigVersionView.as_view(), name="config-version-activate"),
     path("config-versions/<int:pk>/archive/", ArchiveConfigVersionView.as_view(), name="config-version-archive"),
+    path("config-versions/<int:pk>/submit-for-approval/", SubmitForApprovalView.as_view(), name="config-version-submit-approval"),
+    path("config-versions/<int:pk>/approval/", ApprovalDetailView.as_view(), name="config-version-approval-detail"),
 
     # Resolved config
     path("resolved-config/", ResolvedConfigView.as_view(), name="resolved-config"),
