@@ -3,11 +3,15 @@ from rest_framework.filters import OrderingFilter
 
 from .models import AuditEvent
 from .serializers import AuditEventSerializer
+from common.authentication import JiraJWTAuthentication
+from common.permissions import IsViewer
 
 
 class AuditEventListView(generics.ListAPIView):
     """Read-only paginated list of audit events. Filter by event_type or config_item."""
 
+    authentication_classes = [JiraJWTAuthentication]
+    permission_classes = [IsViewer]
     serializer_class = AuditEventSerializer
     filter_backends = [OrderingFilter]
     ordering_fields = ["created_at"]

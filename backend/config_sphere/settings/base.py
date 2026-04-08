@@ -27,6 +27,7 @@ LOCAL_APPS = [
     "apps.audits",
     "apps.schemas",
     "apps.configs",
+    "apps.approvals",
 ]
 
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
@@ -107,12 +108,29 @@ REST_FRAMEWORK = {
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
     ],
-    "DEFAULT_AUTHENTICATION_CLASSES": [],
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "common.authentication.JiraJWTAuthentication",
+    ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",
+        "common.permissions.IsViewer",
     ],
     "EXCEPTION_HANDLER": "common.exceptions.custom_exception_handler",
 }
+
+# ── JWT (shared secret with auth-service) ────────────────────────────────────
+# Must match JWT_SECRET_KEY in the auth-service environment.
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-jwt-secret-replace-in-prod")
+
+# ── Jira (server-to-server, for approval ticket creation) ────────────────────
+JIRA_BASE_URL = os.environ.get("JIRA_BASE_URL", "https://yourorg.atlassian.net")
+JIRA_PROJECT_KEY = os.environ.get("JIRA_PROJECT_KEY", "CONFIGSPHERE")
+JIRA_EMAIL = os.environ.get("JIRA_EMAIL", "")           # Atlassian account email
+JIRA_API_TOKEN = os.environ.get("JIRA_API_TOKEN", "")   # API token from id.atlassian.com
+JIRA_WEBHOOK_SECRET = os.environ.get("JIRA_WEBHOOK_SECRET", "")
+
+# Jira issue statuses that trigger approval/rejection via webhook
+JIRA_APPROVAL_STATUSES = ["Done", "Approved", "Resolved"]
+JIRA_REJECTION_STATUSES = ["Rejected", "Declined", "Won't Do", "Wont Do"]
 
 LOGGING = {
     "version": 1,
