@@ -2,11 +2,13 @@ import React from 'react';
 import { Box, AppBar, Toolbar, Typography, IconButton, Menu, MenuItem, Avatar, Chip } from '@mui/material';
 import { AccountCircle, Settings, Logout } from '@mui/icons-material';
 import { useState } from 'react';
-import { useAppStore } from '@/stores/app';
+import { useAuthStore } from '@/stores/auth';
 
 export const TopBar = () => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
-  const currentUser = useAppStore((state: any) => state.currentUser);
+  const user = useAuthStore((s) => s.user);
+  const logout = useAuthStore((s) => s.logout);
+  const displayName = user?.display_name || user?.email || 'User';
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -14,6 +16,12 @@ export const TopBar = () => {
 
   const handleMenuClose = () => {
     setAnchorEl(null);
+  };
+
+  const handleLogout = () => {
+    handleMenuClose();
+    logout();
+    window.location.href = '/login';
   };
 
   return (
@@ -49,8 +57,8 @@ export const TopBar = () => {
 
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Chip
-            label={currentUser}
-            avatar={<Avatar>{currentUser.charAt(0).toUpperCase()}</Avatar>}
+            label={displayName}
+            avatar={<Avatar>{displayName.charAt(0).toUpperCase()}</Avatar>}
             sx={{ bgcolor: 'rgba(255,255,255,0.1)', color: 'white' }}
           />
 
@@ -66,7 +74,7 @@ export const TopBar = () => {
             <MenuItem onClick={handleMenuClose}>
               <Settings sx={{ mr: 1 }} /> Settings
             </MenuItem>
-            <MenuItem onClick={handleMenuClose}>
+            <MenuItem onClick={handleLogout}>
               <Logout sx={{ mr: 1 }} /> Logout
             </MenuItem>
           </Menu>

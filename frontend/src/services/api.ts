@@ -4,6 +4,13 @@ import {
 } from '@/types';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1';
+const AUTH_URL = import.meta.env.VITE_AUTH_URL || 'http://localhost:8001/api/v1';
+
+// Separate axios instance for auth-service calls
+export const authApi = axios.create({
+  baseURL: AUTH_URL,
+  headers: { 'Content-Type': 'application/json' },
+});
 
 class ApiClient {
   private client: AxiosInstance;
@@ -16,8 +23,18 @@ class ApiClient {
       },
     });
 
-    // Add request interceptor for logging
+    // Attach JWT token from localStorage (persisted by zustand)
     this.client.interceptors.request.use((config: any) => {
+      const stored = localStorage.getItem('configsphere-auth');
+      if (stored) {
+        try {
+          const { state } = JSON.parse(stored);
+          if (state?.token) {
+            config.headers = config.headers || {};
+            config.headers['Authorization'] = `Bearer ${state.token}`;
+          }
+        } catch { /* ignore parse errors */ }
+      }
       console.log('API Request:', config.method?.toUpperCase(), config.url);
       return config;
     });
@@ -30,6 +47,11 @@ class ApiClient {
       },
       (error: any) => {
         console.error('API Error:', error.response?.status, error.response?.data);
+        // Redirect to login on 401
+        if (error.response?.status === 401) {
+          localStorage.removeItem('configsphere-auth');
+          window.location.href = '/login';
+        }
         return Promise.reject(error);
       }
     );

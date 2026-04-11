@@ -8,6 +8,10 @@ import ConfigItems from './pages/ConfigItems';
 import ConfigVersions from './pages/ConfigVersions';
 import ResolvedConfig from './pages/ResolvedConfig';
 import AuditTrail from './pages/AuditTrail';
+import LoginPage from './pages/LoginPage';
+import AuthCallback from './pages/AuthCallback';
+import AuthError from './pages/AuthError';
+import { useAuthStore } from './stores/auth';
 
 const theme = createTheme({
   palette: {
@@ -61,18 +65,27 @@ const theme = createTheme({
   },
 });
 
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const token = useAuthStore((s) => s.token);
+  if (!token) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
 function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <Router>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/schemas" element={<Schemas />} />
-          <Route path="/config-items" element={<ConfigItems />} />
-          <Route path="/versions" element={<ConfigVersions />} />
-          <Route path="/resolver" element={<ResolvedConfig />} />
-          <Route path="/audit" element={<AuditTrail />} />
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/auth/error" element={<AuthError />} />
+          <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/schemas" element={<ProtectedRoute><Schemas /></ProtectedRoute>} />
+          <Route path="/config-items" element={<ProtectedRoute><ConfigItems /></ProtectedRoute>} />
+          <Route path="/versions" element={<ProtectedRoute><ConfigVersions /></ProtectedRoute>} />
+          <Route path="/resolver" element={<ProtectedRoute><ResolvedConfig /></ProtectedRoute>} />
+          <Route path="/audit" element={<ProtectedRoute><AuditTrail /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Router>

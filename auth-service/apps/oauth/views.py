@@ -92,48 +92,7 @@ class JiraCallbackView(APIView):
 
         jwt_token = _jwt_svc.issue_access_token(user)
         jti, _ = _jwt_svc.issue_refresh_token(user)
-        logger.info("JWT for %s: %s", user.email, jwt_token)
-
-        if settings.DEBUG:
-            from django.http import HttpResponse
-            html = f"""<!DOCTYPE html>
-<html>
-<head><title>ConfigSphere — Login Successful</title>
-<style>
-  body {{ font-family: monospace; padding: 40px; background: #0d1117; color: #e6edf3; }}
-  h2 {{ color: #3fb950; }}
-  .token {{ background: #161b22; border: 1px solid #30363d; padding: 16px;
-            border-radius: 6px; word-break: break-all; font-size: 13px; }}
-  .user {{ background: #161b22; border: 1px solid #30363d; padding: 16px;
-           border-radius: 6px; margin-top: 16px; }}
-  button {{ margin-top: 12px; padding: 8px 16px; background: #238636;
-            color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }}
-  button:hover {{ background: #2ea043; }}
-  label {{ color: #8b949e; font-size: 12px; }}
-</style>
-</head>
-<body>
-  <h2>&#10003; Login Successful</h2>
-  <label>Logged in as</label>
-  <div class="user">
-    {user.display_name} &lt;{user.email}&gt;<br/>
-    Role: <strong>{user.configsphere_role}</strong>
-  </div>
-  <br/>
-  <label>JWT Access Token (copy this):</label>
-  <div class="token" id="token">{jwt_token}</div>
-  <button onclick="navigator.clipboard.writeText(document.getElementById('token').innerText)">
-    Copy Token
-  </button>
-  <br/><br/>
-  <label>Test it:</label>
-  <div class="token">curl http://localhost:8000/api/v1/schemas/ \\<br/>
-  &nbsp;&nbsp;-H "Authorization: Bearer {jwt_token}"</div>
-</body>
-</html>"""
-            response = HttpResponse(html)
-            _set_refresh_cookie(response, jti)
-            return response
+        logger.info("JWT issued for %s", user.email)
 
         response = redirect(
             f"{settings.FRONTEND_URL}/auth/callback?token={jwt_token}"
