@@ -1,0 +1,7 @@
+sqlalchemy==2.0.35
+psycopg[binary]==3.2.3
+boto3==1.35.36
+confluent-kafka==2.5.3
+pydantic==2.9.2
+requests==2.32.3
+
