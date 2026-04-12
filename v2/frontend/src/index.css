@@ -1,0 +1,36 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+html,
+body,
+#root {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+}
+
+body {
+  background:
+    radial-gradient(circle at top right, rgba(124, 58, 237, 0.12), transparent 28%),
+    radial-gradient(circle at left center, rgba(91, 77, 245, 0.08), transparent 24%),
+    linear-gradient(135deg, #f4f7ff 0%, #eef2ff 100%);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(99, 102, 241, 0.3);
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+

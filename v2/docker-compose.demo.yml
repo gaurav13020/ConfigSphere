@@ -1,0 +1,154 @@
+services:
+  demo-service-01: &demo-service
+    build:
+      context: .
+      dockerfile: services/demo-service/Dockerfile
+    environment:
+      DELIVERY_BASE_URL: http://host.docker.internal:8101
+      DELIVERY_SERVICE_NAME: payments
+      CONFIG_PATH: /global
+      CONFIG_TOKEN: ${DEMO_CONFIG_TOKEN_01:-${DEMO_CONFIG_TOKEN:-replace-me}}
+      POLL_INTERVAL_SECONDS: 4
+      INSTANCE_COUNT: 1
+      DEMO_SERVICE_ALIAS: payments-demo-01
+      INSTANCE_PREFIX: payments-demo-01
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  demo-service-02:
+    <<: *demo-service
+    environment:
+      DELIVERY_BASE_URL: http://host.docker.internal:8101
+      DELIVERY_SERVICE_NAME: payments
+      CONFIG_PATH: /global
+      CONFIG_TOKEN: ${DEMO_CONFIG_TOKEN_02:-${DEMO_CONFIG_TOKEN:-replace-me}}
+      POLL_INTERVAL_SECONDS: 4
+      INSTANCE_COUNT: 1
+      DEMO_SERVICE_ALIAS: payments-demo-02
+      INSTANCE_PREFIX: payments-demo-02
+
+  demo-service-03:
+    <<: *demo-service
+    environment:
+      DELIVERY_BASE_URL: http://host.docker.internal:8101
+      DELIVERY_SERVICE_NAME: payments
+      CONFIG_PATH: /global/us-east-1
+      CONFIG_TOKEN: ${DEMO_CONFIG_TOKEN_03:-${DEMO_CONFIG_TOKEN:-replace-me}}
+      POLL_INTERVAL_SECONDS: 4
+      INSTANCE_COUNT: 1
+      DEMO_SERVICE_ALIAS: payments-demo-03
+      INSTANCE_PREFIX: payments-demo-03
+
+  demo-service-04:
+    <<: *demo-service
+    environment:
+      DELIVERY_BASE_URL: http://host.docker.internal:8101
+      DELIVERY_SERVICE_NAME: payments
+      CONFIG_PATH: /global/us-east-1/staging/qauat01
+      CONFIG_TOKEN: ${DEMO_CONFIG_TOKEN_04:-${DEMO_CONFIG_TOKEN:-replace-me}}
+      POLL_INTERVAL_SECONDS: 4
+      INSTANCE_COUNT: 1
+      DEMO_SERVICE_ALIAS: payments-demo-04
+      INSTANCE_PREFIX: payments-demo-04
+
+  demo-service-05:
+    <<: *demo-service
+    environment:
+      DELIVERY_BASE_URL: http://host.docker.internal:8101
+      DELIVERY_SERVICE_NAME: payments
+      CONFIG_PATH: /global/us-east-1
+      CONFIG_TOKEN: ${DEMO_CONFIG_TOKEN_05:-${DEMO_CONFIG_TOKEN:-replace-me}}
+      POLL_INTERVAL_SECONDS: 4
+      INSTANCE_COUNT: 1
+      DEMO_SERVICE_ALIAS: payments-demo-05
+      INSTANCE_PREFIX: payments-demo-05
+
+  demo-service-06:
+    <<: *demo-service
+    environment:
+      DELIVERY_BASE_URL: http://host.docker.internal:8101
+      DELIVERY_SERVICE_NAME: payments
+      CONFIG_PATH: /global/us-east-1/prod-1
+      CONFIG_TOKEN: ${DEMO_CONFIG_TOKEN_06:-${DEMO_CONFIG_TOKEN:-replace-me}}
+      POLL_INTERVAL_SECONDS: 4
+      INSTANCE_COUNT: 1
+      DEMO_SERVICE_ALIAS: payments-demo-06
+      INSTANCE_PREFIX: payments-demo-06
+
+  demo-service-07:
+    <<: *demo-service
+    environment:
+      DELIVERY_BASE_URL: http://host.docker.internal:8101
+      DELIVERY_SERVICE_NAME: payments
+      CONFIG_PATH: /global/us-east-1/prod-1
+      CONFIG_TOKEN: ${DEMO_CONFIG_TOKEN_07:-${DEMO_CONFIG_TOKEN:-replace-me}}
+      POLL_INTERVAL_SECONDS: 4
+      INSTANCE_COUNT: 1
+      DEMO_SERVICE_ALIAS: payments-demo-07
+      INSTANCE_PREFIX: payments-demo-07
+
+  demo-service-08:
+    <<: *demo-service
+    environment:
+      DELIVERY_BASE_URL: http://host.docker.internal:8101
+      DELIVERY_SERVICE_NAME: payments
+      CONFIG_PATH: /global/us-east-1/prod-1
+      CONFIG_TOKEN: ${DEMO_CONFIG_TOKEN_08:-${DEMO_CONFIG_TOKEN:-replace-me}}
+      POLL_INTERVAL_SECONDS: 4
+      INSTANCE_COUNT: 1
+      DEMO_SERVICE_ALIAS: payments-demo-08
+      INSTANCE_PREFIX: payments-demo-08
+
+  demo-service-09:
+    <<: *demo-service
+    environment:
+      DELIVERY_BASE_URL: http://host.docker.internal:8101
+      DELIVERY_SERVICE_NAME: payments
+      CONFIG_PATH: /global/us-east-1/staging
+      CONFIG_TOKEN: ${DEMO_CONFIG_TOKEN_09:-${DEMO_CONFIG_TOKEN:-replace-me}}
+      POLL_INTERVAL_SECONDS: 4
+      INSTANCE_COUNT: 1
+      DEMO_SERVICE_ALIAS: payments-demo-09
+      INSTANCE_PREFIX: payments-demo-09
+
+  demo-service-10:
+    <<: *demo-service
+    environment:
+      DELIVERY_BASE_URL: http://host.docker.internal:8101
+      DELIVERY_SERVICE_NAME: payments
+      CONFIG_PATH: /global/us-east-1/staging
+      CONFIG_TOKEN: ${DEMO_CONFIG_TOKEN_10:-${DEMO_CONFIG_TOKEN:-replace-me}}
+      POLL_INTERVAL_SECONDS: 4
+      INSTANCE_COUNT: 1
+      DEMO_SERVICE_ALIAS: payments-demo-10
+      INSTANCE_PREFIX: payments-demo-10
+
+  demo-dashboard:
+    build:
+      context: .
+      dockerfile: services/demo-dashboard/Dockerfile
+    environment:
+      DEMO_TARGETS: >-
+        payments-demo-01=http://demo-service-01:8200/config,
+        payments-demo-02=http://demo-service-02:8200/config,
+        payments-demo-03=http://demo-service-03:8200/config,
+        payments-demo-04=http://demo-service-04:8200/config,
+        payments-demo-05=http://demo-service-05:8200/config,
+        payments-demo-06=http://demo-service-06:8200/config,
+        payments-demo-07=http://demo-service-07:8200/config,
+        payments-demo-08=http://demo-service-08:8200/config,
+        payments-demo-09=http://demo-service-09:8200/config,
+        payments-demo-10=http://demo-service-10:8200/config
+    depends_on:
+      - demo-service-01
+      - demo-service-02
+      - demo-service-03
+      - demo-service-04
+      - demo-service-05
+      - demo-service-06
+      - demo-service-07
+      - demo-service-08
+      - demo-service-09
+      - demo-service-10
+    ports:
+      - "8300:8300"
