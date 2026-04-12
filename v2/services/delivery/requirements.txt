@@ -4,4 +4,5 @@ sqlalchemy==2.0.35
 psycopg[binary]==3.2.3
 pydantic==2.9.2
 boto3==1.35.36
-
+redis==5.0.8
+aiokafka==0.11.0
