@@ -54,6 +54,19 @@ services:
     ports:
       - "8002:8000"
 
+  redis:
+    image: redis:7.2-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   keycloak:
     image: quay.io/keycloak/keycloak:25.0
     command: start-dev
@@ -102,6 +115,8 @@ services:
         condition: service_healthy
       dynamodb-local:
         condition: service_started
+      redis:
+        condition: service_healthy
     ports:
       - "8101:8101"
     volumes:
@@ -154,3 +169,4 @@ volumes:
   zookeeper_data:
   zookeeper_log:
   kafka_data:
+  redis_data:
