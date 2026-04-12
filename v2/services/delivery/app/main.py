@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from configsphere_shared.cache import TwoTierCache
 from configsphere_shared.config_payloads import ConfigPayloadStore
 from configsphere_shared.models import ConfigNode, ConfigNodeVersion, Service, ServiceApiKey
 from configsphere_shared.security import (
@@ -17,10 +20,34 @@ from configsphere_shared.security import (
     hash_service_api_key_token,
 )
 
-from app.db import get_db
+from app.db import get_db, get_redis_client
+from app.invalidation_consumer import run_invalidation_consumer
+
+_L1_TTL = int(os.getenv("CACHE_L1_TTL_SECONDS", "600"))
+_L2_TTL = int(os.getenv("CACHE_L2_TTL_SECONDS", "1800"))
+
+_cache: TwoTierCache | None = None
 
 
-app = FastAPI(title="ConfigSphere V2 Delivery")
+def _get_cache() -> TwoTierCache:
+    assert _cache is not None, "Cache not initialised — lifespan not running"
+    return _cache
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global _cache
+    _cache = TwoTierCache(get_redis_client(), l1_ttl_seconds=_L1_TTL, l2_ttl_seconds=_L2_TTL)
+    task = asyncio.create_task(run_invalidation_consumer(_cache))
+    yield
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+
+
+app = FastAPI(title="ConfigSphere V2 Delivery", lifespan=lifespan)
 payload_store = ConfigPayloadStore()
 
 cors_origins = [
@@ -78,8 +105,15 @@ def get_config(
     path: str,
     db: Session = Depends(get_db),
     principal: AuthenticatedUser | DeliveryApiPrincipal = Depends(_resolve_delivery_principal),
+    cache: TwoTierCache = Depends(_get_cache),
 ):
     normalized_path = _normalize_path(path)
+    cache_key = f"delivery:config:{service}:{normalized_path}"
+
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     service_row = db.scalar(select(Service).where(Service.service_name == service))
     if not service_row:
         raise HTTPException(status_code=404, detail="Service not found")
@@ -103,7 +137,7 @@ def get_config(
     if not document:
         raise HTTPException(status_code=404, detail="Config payload not found")
 
-    return {
+    response = {
         "serviceId": str(service_row.service_id),
         "serviceName": service_row.service_name,
         "configNodeId": str(node.config_node_id),
@@ -113,6 +147,8 @@ def get_config(
         "materializedConfig": document.get("materializedConfig", {}),
         "keyCount": document.get("keyCount", 0),
     }
+    cache.set(cache_key, response)
+    return response
 
 
 @app.get("/v1/config/version")
@@ -121,13 +157,21 @@ def get_config_version(
     path: str,
     db: Session = Depends(get_db),
     principal: AuthenticatedUser | DeliveryApiPrincipal = Depends(_resolve_delivery_principal),
+    cache: TwoTierCache = Depends(_get_cache),
 ):
     normalized_path = _normalize_path(path)
+    cache_key = f"delivery:version:{service}:{normalized_path}"
+
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     service_row = db.scalar(select(Service).where(Service.service_name == service))
     if not service_row:
         raise HTTPException(status_code=404, detail="Service not found")
     if isinstance(principal, DeliveryApiPrincipal) and principal.service_id != str(service_row.service_id):
         raise HTTPException(status_code=403, detail="API key is not allowed for this service")
+
     node = db.scalar(
         select(ConfigNode).where(
             ConfigNode.service_id == service_row.service_id,
@@ -136,10 +180,14 @@ def get_config_version(
     )
     if not node or not node.active_version_id:
         raise HTTPException(status_code=404, detail="Config node or active version not found")
+
     version = db.scalar(select(ConfigNodeVersion).where(ConfigNodeVersion.version_id == node.active_version_id))
-    return {
+
+    response = {
         "serviceName": service_row.service_name,
         "path": node.path,
         "versionId": str(version.version_id),
         "treeVersion": service_row.current_tree_version,
     }
+    cache.set(cache_key, response)
+    return response
