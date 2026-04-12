@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Generator
 
+import redis
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -31,3 +32,16 @@ def get_db() -> Generator[Session, None, None]:
         yield db
     finally:
         db.close()
+
+
+_REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+
+_redis_pool = redis.ConnectionPool.from_url(
+    _REDIS_URL,
+    max_connections=50,
+    decode_responses=True,
+)
+
+
+def get_redis_client() -> redis.Redis:
+    return redis.Redis(connection_pool=_redis_pool)
