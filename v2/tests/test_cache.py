@@ -136,3 +136,44 @@ def test_two_tier_delete_clears_l1_when_redis_down():
     cache.l1.set("k", {"v": 1})
     cache.delete("k")  # must not raise
     assert cache.l1.get("k") is None
+
+
+import asyncio
+import sys
+import pytest
+from unittest.mock import AsyncMock, patch
+
+
+@pytest.mark.asyncio
+async def test_invalidation_consumer_evicts_both_cache_keys():
+    """Consumer should delete both delivery:config: and delivery:version: keys on message."""
+    mock_redis = MagicMock(spec=redis_lib.Redis)
+    mock_redis.get.return_value = None
+    mock_redis.setex.return_value = None
+    mock_redis.delete.return_value = None
+    cache = TwoTierCache(mock_redis)
+    cache.l1.set("delivery:config:svc:/path", {"data": 1})
+    cache.l1.set("delivery:version:svc:/path", {"v": 1})
+
+    msg = MagicMock()
+    msg.value = {"service_name": "svc", "path": "/path"}
+
+    received = []
+
+    async def fake_aiter(self):
+        yield msg
+
+    mock_consumer = MagicMock()
+    mock_consumer.start = AsyncMock()
+    mock_consumer.stop = AsyncMock()
+    mock_consumer.__aiter__ = fake_aiter
+
+    # Ensure we get the freshly-patched module from sys.modules cache
+    if "app.invalidation_consumer" in sys.modules:
+        del sys.modules["app.invalidation_consumer"]
+    with patch("app.invalidation_consumer.AIOKafkaConsumer", return_value=mock_consumer):
+        import app.invalidation_consumer as ic
+        await ic.run_invalidation_consumer(cache)
+
+    assert cache.l1.get("delivery:config:svc:/path") is None
+    assert cache.l1.get("delivery:version:svc:/path") is None
