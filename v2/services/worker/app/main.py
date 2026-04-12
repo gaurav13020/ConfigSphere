@@ -10,6 +10,7 @@ from configsphere_shared.config_payloads import ConfigPayloadStore
 
 from app.core.processor import PropagationProcessor
 from app.db import SessionLocal
+from app.kafka_producer import InvalidationPublisher
 
 
 def build_consumer() -> Consumer:
@@ -22,13 +23,16 @@ def build_consumer() -> Consumer:
     )
 
 
+_publisher = InvalidationPublisher()
+
+
 def handle_message(payload: dict) -> None:
     correlation_id = payload.get("correlation_id")
     if not correlation_id:
         return
     with SessionLocal() as db:
         processor = PropagationProcessor(db, ConfigPayloadStore())
-        processor.process_job(correlation_id)
+        processor.process_job(correlation_id, _publisher)
 
 
 def main() -> None:
@@ -49,4 +53,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
