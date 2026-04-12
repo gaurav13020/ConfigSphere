@@ -18,7 +18,7 @@ from configsphere_shared.constants import (
     RollbackStatus,
     SyncStatus,
 )
-from configsphere_shared.events import ImplementRequestedEvent, RollbackRequestedEvent
+from configsphere_shared.events import ImplementRequestedEvent, JiraSyncRequestedEvent, RollbackRequestedEvent
 from configsphere_shared.models import (
     ConfigChangeAction,
     ConfigChangeComment,
@@ -51,6 +51,7 @@ def create_change_request(
     request_type: RequestType,
     assigned_reviewer_id: uuid.UUID | None,
     created_by: uuid.UUID,
+    kafka: KafkaPublisher | None = None,
 ) -> ConfigChangeRequest:
     request = ConfigChangeRequest(
         service_id=service_id,
@@ -69,14 +70,23 @@ def create_change_request(
             action_type="CREATE",
         )
     )
-    db.add(
-        JiraSyncEvent(
+    sync_event = JiraSyncEvent(
             request_id=request.request_id,
             event_type="CREATE_ISSUE",
             payload_json={"request_id": str(request.request_id)},
             sync_status=SyncStatus.PENDING,
         )
-    )
+    db.add(sync_event)
+    db.flush()
+    if kafka:
+        kafka.publish(
+            "jira-sync-events",
+            JiraSyncRequestedEvent(
+                sync_event_id=sync_event.sync_event_id,
+                correlation_id=str(sync_event.sync_event_id),
+                created_at=datetime.utcnow(),
+            ).model_dump(mode="json"),
+        )
     return request
 
 
@@ -206,25 +216,34 @@ def add_comment(db: Session, request: ConfigChangeRequest, revision_id: uuid.UUI
     )
 
 
-def submit_request(db: Session, request: ConfigChangeRequest, actor_id: uuid.UUID, note: str | None) -> ConfigChangeRequest:
+def submit_request(db: Session, request: ConfigChangeRequest, actor_id: uuid.UUID, note: str | None, kafka: KafkaPublisher | None = None) -> ConfigChangeRequest:
     if not request.current_revision_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Request requires at least one revision before submission")
     request.status = ChangeRequestStatus.SUBMITTED
     request.submitted_at = datetime.utcnow()
     db.add(request)
     db.add(ConfigChangeAction(request_id=request.request_id, revision_id=request.current_revision_id, actor_id=actor_id, action_type="SUBMIT", note=note))
-    db.add(
-        JiraSyncEvent(
-            request_id=request.request_id,
-            event_type="UPDATE_STATUS",
-            payload_json={"status": request.status.value},
-            sync_status=SyncStatus.PENDING,
-        )
+    sync_event = JiraSyncEvent(
+        request_id=request.request_id,
+        event_type="UPDATE_STATUS",
+        payload_json={"status": request.status.value},
+        sync_status=SyncStatus.PENDING,
     )
+    db.add(sync_event)
+    db.flush()
+    if kafka:
+        kafka.publish(
+            "jira-sync-events",
+            JiraSyncRequestedEvent(
+                sync_event_id=sync_event.sync_event_id,
+                correlation_id=str(sync_event.sync_event_id),
+                created_at=datetime.utcnow(),
+            ).model_dump(mode="json"),
+        )
     return request
 
 
-def cancel_request(db: Session, request: ConfigChangeRequest, actor_id: uuid.UUID, note: str | None) -> ConfigChangeRequest:
+def cancel_request(db: Session, request: ConfigChangeRequest, actor_id: uuid.UUID, note: str | None, kafka: KafkaPublisher | None = None) -> ConfigChangeRequest:
     if request.status in {ChangeRequestStatus.IMPLEMENTING, ChangeRequestStatus.IMPLEMENTED}:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Implemented requests cannot be canceled")
     request.status = ChangeRequestStatus.REJECTED
@@ -238,14 +257,23 @@ def cancel_request(db: Session, request: ConfigChangeRequest, actor_id: uuid.UUI
             note=note,
         )
     )
-    db.add(
-        JiraSyncEvent(
-            request_id=request.request_id,
-            event_type="UPDATE_STATUS",
-            payload_json={"status": request.status.value, "reason": "CANCELED"},
-            sync_status=SyncStatus.PENDING,
-        )
+    sync_event = JiraSyncEvent(
+        request_id=request.request_id,
+        event_type="UPDATE_STATUS",
+        payload_json={"status": request.status.value, "reason": "CANCELED"},
+        sync_status=SyncStatus.PENDING,
     )
+    db.add(sync_event)
+    db.flush()
+    if kafka:
+        kafka.publish(
+            "jira-sync-events",
+            JiraSyncRequestedEvent(
+                sync_event_id=sync_event.sync_event_id,
+                correlation_id=str(sync_event.sync_event_id),
+                created_at=datetime.utcnow(),
+            ).model_dump(mode="json"),
+        )
     return request
 
 
@@ -256,6 +284,7 @@ def review_request(
     decision: ReviewDecision,
     reviewer_id: uuid.UUID,
     note: str | None,
+    kafka: KafkaPublisher | None = None,
 ) -> ConfigChangeRequest:
     _ensure_latest_revision(request, revision_id)
     if request.status not in {ChangeRequestStatus.SUBMITTED, ChangeRequestStatus.IN_REVIEW, ChangeRequestStatus.CHANGES_REQUESTED, ChangeRequestStatus.DRAFT}:
@@ -291,6 +320,23 @@ def review_request(
             note=note,
         )
     )
+    sync_event = JiraSyncEvent(
+        request_id=request.request_id,
+        event_type="UPDATE_STATUS",
+        payload_json={"status": request.status.value, "decision": decision.value},
+        sync_status=SyncStatus.PENDING,
+    )
+    db.add(sync_event)
+    db.flush()
+    if kafka:
+        kafka.publish(
+            "jira-sync-events",
+            JiraSyncRequestedEvent(
+                sync_event_id=sync_event.sync_event_id,
+                correlation_id=str(sync_event.sync_event_id),
+                created_at=datetime.utcnow(),
+            ).model_dump(mode="json"),
+        )
     return request
 
 

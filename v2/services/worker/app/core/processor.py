@@ -15,6 +15,7 @@ from configsphere_shared.constants import (
     JobStatus,
     JobType,
     RollbackStatus,
+    SyncStatus,
     VersionStatus,
 )
 from configsphere_shared.models import (
@@ -22,6 +23,7 @@ from configsphere_shared.models import (
     ConfigChangeRevision,
     ConfigNode,
     ConfigNodeVersion,
+    JiraSyncEvent,
     PropagationJob,
     RollbackRequest,
     Service,
@@ -32,6 +34,7 @@ class PropagationProcessor:
     def __init__(self, db: Session, payload_store: ConfigPayloadStore) -> None:
         self.db = db
         self.payload_store = payload_store
+        self._pending_sync_event_ids: list[UUID] = []
 
     def process_job(self, job_id: UUID) -> None:
         job = self.db.scalar(select(PropagationJob).where(PropagationJob.job_id == job_id))
@@ -76,6 +79,16 @@ class PropagationProcessor:
 
         if not request or not revision or not service or not target_node:
             raise ValueError("Propagation job references missing records")
+
+        implementing_event = JiraSyncEvent(
+            request_id=request.request_id,
+            event_type="UPDATE_STATUS",
+            payload_json={"status": ChangeRequestStatus.IMPLEMENTING.value},
+            sync_status=SyncStatus.PENDING,
+        )
+        self.db.add(implementing_event)
+        self.db.flush()
+        self._pending_sync_event_ids.append(implementing_event.sync_event_id)
 
         if revision.base_tree_version != service.current_tree_version:
             request.status = ChangeRequestStatus.CONFLICTED
@@ -124,6 +137,15 @@ class PropagationProcessor:
         request.status = ChangeRequestStatus.IMPLEMENTED
         request.implemented_at = datetime.utcnow()
         self.db.add(request)
+        implemented_event = JiraSyncEvent(
+            request_id=request.request_id,
+            event_type="UPDATE_STATUS",
+            payload_json={"status": ChangeRequestStatus.IMPLEMENTED.value},
+            sync_status=SyncStatus.PENDING,
+        )
+        self.db.add(implemented_event)
+        self.db.flush()
+        self._pending_sync_event_ids.append(implemented_event.sync_event_id)
 
     def _process_rollback(self, job: PropagationJob) -> None:
         rollback = self.db.scalar(

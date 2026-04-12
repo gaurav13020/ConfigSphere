@@ -19,7 +19,11 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.drop_column("service_api_keys", "last_used_at")
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    columns = [c["name"] for c in inspector.get_columns("service_api_keys")]
+    if "last_used_at" in columns:
+        op.drop_column("service_api_keys", "last_used_at")
 
 
 def downgrade() -> None:

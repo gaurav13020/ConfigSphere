@@ -715,7 +715,7 @@ const RequestsPage = () => {
         </Grid>
       </Grid>
 
-      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="md">
+      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="md" disablePortal>
         <DialogTitle>Create change request</DialogTitle>
         <DialogContent sx={{ pt: 1 }}>
           <Stack spacing={2}>

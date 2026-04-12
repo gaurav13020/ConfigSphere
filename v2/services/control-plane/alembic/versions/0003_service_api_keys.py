@@ -17,37 +17,48 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "service_api_keys",
-        sa.Column("api_key_id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column("service_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("key_name", sa.String(length=200), nullable=False),
-        sa.Column("token_prefix", sa.String(length=32), nullable=False),
-        sa.Column("token_hash", sa.String(length=128), nullable=False),
-        sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=True),
-        sa.Column("last_used_at", sa.DateTime(), nullable=True),
-        sa.Column("revoked_at", sa.DateTime(), nullable=True),
-        sa.Column("created_at", sa.DateTime(), nullable=False),
-        sa.ForeignKeyConstraint(["service_id"], ["services.service_id"], name="fk_service_api_keys_service_id_services"),
-        sa.ForeignKeyConstraint(["created_by"], ["users.user_id"], name="fk_service_api_keys_created_by_users"),
-    )
-    op.create_index(
-        "ix_service_api_keys_service_created",
-        "service_api_keys",
-        ["service_id", "created_at"],
-        unique=False,
-    )
-    op.create_index(
-        "ix_service_api_keys_token_hash",
-        "service_api_keys",
-        ["token_hash"],
-        unique=False,
-    )
-    op.create_unique_constraint(
-        "uq_service_api_keys_token_hash",
-        "service_api_keys",
-        ["token_hash"],
-    )
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if not inspector.has_table("service_api_keys"):
+        op.create_table(
+            "service_api_keys",
+            sa.Column("api_key_id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+            sa.Column("service_id", postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column("key_name", sa.String(length=200), nullable=False),
+            sa.Column("token_prefix", sa.String(length=32), nullable=False),
+            sa.Column("token_hash", sa.String(length=128), nullable=False),
+            sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=True),
+            sa.Column("last_used_at", sa.DateTime(), nullable=True),
+            sa.Column("revoked_at", sa.DateTime(), nullable=True),
+            sa.Column("created_at", sa.DateTime(), nullable=False),
+            sa.ForeignKeyConstraint(["service_id"], ["services.service_id"], name="fk_service_api_keys_service_id_services"),
+            sa.ForeignKeyConstraint(["created_by"], ["users.user_id"], name="fk_service_api_keys_created_by_users"),
+        )
+
+    existing_ix = [ix["name"] for ix in inspector.get_indexes("service_api_keys")] if inspector.has_table("service_api_keys") else []
+    if "ix_service_api_keys_service_created" not in existing_ix:
+        op.create_index(
+            "ix_service_api_keys_service_created",
+            "service_api_keys",
+            ["service_id", "created_at"],
+            unique=False,
+        )
+    if "ix_service_api_keys_token_hash" not in existing_ix:
+        op.create_index(
+            "ix_service_api_keys_token_hash",
+            "service_api_keys",
+            ["token_hash"],
+            unique=False,
+        )
+
+    existing_uq = [c["name"] for c in inspector.get_unique_constraints("service_api_keys")] if inspector.has_table("service_api_keys") else []
+    if "uq_service_api_keys_token_hash" not in existing_uq:
+        op.create_unique_constraint(
+            "uq_service_api_keys_token_hash",
+            "service_api_keys",
+            ["token_hash"],
+        )
 
 
 def downgrade() -> None:

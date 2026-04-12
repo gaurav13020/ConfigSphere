@@ -504,6 +504,7 @@ def create_change_request_endpoint(
         payload.request_type,
         payload.assigned_reviewer_id,
         user.user_id,
+        kafka=kafka,
     )
     db.commit()
     db.refresh(request)
@@ -673,7 +674,7 @@ def submit_change_request_endpoint(
     if not request:
         raise HTTPException(status_code=404, detail="Change request not found")
     require_service_role(db, user.user_id, request.service_id, [RoleName.CONFIG_AUTHOR, RoleName.CONFIG_ADMIN])
-    submit_request(db, request, user.user_id, payload.note)
+    submit_request(db, request, user.user_id, payload.note, kafka=kafka)
     db.commit()
     db.refresh(request)
     return _change_request_read(request)
@@ -694,7 +695,7 @@ def review_change_request_endpoint(
     is_admin = has_service_role(db, user.user_id, request.service_id, [RoleName.CONFIG_ADMIN])
     if request.assigned_reviewer_id and request.assigned_reviewer_id != user.user_id and not is_admin:
         raise HTTPException(status_code=403, detail="This request is assigned to a different reviewer")
-    review_request(db, request, payload.revision_id, payload.decision, user.user_id, payload.note)
+    review_request(db, request, payload.revision_id, payload.decision, user.user_id, payload.note, kafka=kafka)
     db.commit()
     db.refresh(request)
     return _change_request_read(request)
@@ -715,7 +716,7 @@ def cancel_change_request_endpoint(
     is_admin = has_service_role(db, user.user_id, request.service_id, [RoleName.CONFIG_ADMIN])
     if not is_author and not is_admin:
         raise HTTPException(status_code=403, detail="Only the author or an admin may cancel this request")
-    cancel_request(db, request, user.user_id, payload.note)
+    cancel_request(db, request, user.user_id, payload.note, kafka=kafka)
     db.commit()
     db.refresh(request)
     return _change_request_read(request)
