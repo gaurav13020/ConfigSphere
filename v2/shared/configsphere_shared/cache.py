@@ -3,12 +3,23 @@ from __future__ import annotations
 import json
 import logging
 import time
+from decimal import Decimal
 from typing import Any
 
 import redis as redis_lib
 from redis.exceptions import RedisError
 
 logger = logging.getLogger(__name__)
+
+
+class _CacheEncoder(json.JSONEncoder):
+    """JSON encoder that converts Decimal to float/int for Redis serialisation."""
+
+    def default(self, o: Any) -> Any:
+        if isinstance(o, Decimal):
+            # Preserve int precision when the value has no fractional part.
+            return int(o) if o == o.to_integral_value() else float(o)
+        return super().default(o)
 
 
 class L1Cache:
@@ -75,7 +86,7 @@ class TwoTierCache:
     def set(self, key: str, value: Any) -> None:
         self.l1.set(key, value)
         try:
-            self._redis.setex(key, self._l2_ttl, json.dumps(value))
+            self._redis.setex(key, self._l2_ttl, json.dumps(value, cls=_CacheEncoder))
         except RedisError:
             logger.warning("Redis unavailable on SET: %s", key)
 

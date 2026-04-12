@@ -138,6 +138,20 @@ def test_two_tier_delete_clears_l1_when_redis_down():
     assert cache.l1.get("k") is None
 
 
+def test_two_tier_set_serialises_decimal_values():
+    from decimal import Decimal
+    r = _make_mock_redis()
+    cache = TwoTierCache(r, l2_ttl_seconds=1800)
+    cache.set("k", {"price": Decimal("9.99"), "count": Decimal("3")})
+    # Must not raise; Redis setex must be called with valid JSON
+    args = r.setex.call_args
+    serialised = args[0][2]  # third positional arg is the JSON string
+    import json
+    parsed = json.loads(serialised)
+    assert parsed["price"] == 9.99
+    assert parsed["count"] == 3
+
+
 import asyncio
 import sys
 import pytest
