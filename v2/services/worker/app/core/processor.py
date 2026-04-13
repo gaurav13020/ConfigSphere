@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from configsphere_shared.config_payloads import ConfigPayloadStore
+from app.kafka_producer import InvalidationPublisher
 from configsphere_shared.constants import (
     ACTIVE_VERSION,
     CANDIDATE_VERSION,
@@ -36,7 +37,7 @@ class PropagationProcessor:
         self.payload_store = payload_store
         self._pending_sync_event_ids: list[UUID] = []
 
-    def process_job(self, job_id: UUID) -> None:
+    def process_job(self, job_id: UUID, publisher: InvalidationPublisher | None = None) -> None:
         job = self.db.scalar(select(PropagationJob).where(PropagationJob.job_id == job_id))
         if not job:
             raise ValueError(f"Propagation job {job_id} not found")
@@ -49,13 +50,16 @@ class PropagationProcessor:
 
         try:
             if job.job_type == JobType.IMPLEMENT:
-                self._process_implement(job)
+                events = self._process_implement(job)
             else:
-                self._process_rollback(job)
+                events = self._process_rollback(job)
             job.status = JobStatus.SUCCEEDED
             job.finished_at = datetime.utcnow()
             self.db.add(job)
             self.db.commit()
+            if publisher:
+                for event in events:
+                    publisher.publish_invalidation(**event)
         except Exception as exc:  # noqa: BLE001
             self.db.rollback()
             retry_db = self.db
@@ -71,7 +75,7 @@ class PropagationProcessor:
                     retry_db.add(request)
             retry_db.commit()
 
-    def _process_implement(self, job: PropagationJob) -> None:
+    def _process_implement(self, job: PropagationJob) -> list[dict]:
         request = self.db.scalar(select(ConfigChangeRequest).where(ConfigChangeRequest.request_id == job.request_id))
         revision = self.db.scalar(select(ConfigChangeRevision).where(ConfigChangeRevision.revision_id == job.revision_id))
         service = self.db.scalar(select(Service).where(Service.service_id == job.service_id))
@@ -132,7 +136,7 @@ class PropagationProcessor:
 
         activation_map = {target_node.config_node_id: new_version.version_id}
         self._propagate_descendants(service, target_node, new_materialized, changed_keys, new_tree_version, activation_map)
-        self._activate_versions(service, activation_map)
+        events = self._activate_versions(service, activation_map)
 
         request.status = ChangeRequestStatus.IMPLEMENTED
         request.implemented_at = datetime.utcnow()
@@ -146,8 +150,9 @@ class PropagationProcessor:
         self.db.add(implemented_event)
         self.db.flush()
         self._pending_sync_event_ids.append(implemented_event.sync_event_id)
+        return events
 
-    def _process_rollback(self, job: PropagationJob) -> None:
+    def _process_rollback(self, job: PropagationJob) -> list[dict]:
         rollback = self.db.scalar(
             select(RollbackRequest).where(RollbackRequest.target_config_node_id == job.target_config_node_id, RollbackRequest.status == RollbackStatus.IMPLEMENTING)
         )
@@ -190,11 +195,12 @@ class PropagationProcessor:
             new_tree_version,
             activation_map,
         )
-        self._activate_versions(service, activation_map)
+        events = self._activate_versions(service, activation_map)
         rollback.status = RollbackStatus.ROLLED_BACK
         request.status = ChangeRequestStatus.IMPLEMENTED
         request.implemented_at = datetime.utcnow()
         self.db.add_all([rollback, request])
+        return events
 
     def _diff_keys(self, before: dict[str, str], after: dict[str, str]) -> list[str]:
         keys = set(before.keys()) | set(after.keys())
@@ -301,7 +307,8 @@ class PropagationProcessor:
                 activation_map[child.config_node_id] = new_version.version_id
                 queue.append((child.config_node_id, child_materialized, child_changed_keys))
 
-    def _activate_versions(self, service: Service, activation_map: dict[UUID, UUID]) -> None:
+    def _activate_versions(self, service: Service, activation_map: dict[UUID, UUID]) -> list[dict]:
+        events: list[dict] = []
         for node_id, new_version_id in activation_map.items():
             node = self.db.scalar(select(ConfigNode).where(ConfigNode.config_node_id == node_id))
             old_version_id = node.active_version_id
@@ -315,5 +322,11 @@ class PropagationProcessor:
             new_version = self.db.scalar(select(ConfigNodeVersion).where(ConfigNodeVersion.version_id == new_version_id))
             new_version.version_status = VersionStatus.ACTIVE
             self.db.add(new_version)
+            events.append({
+                "service_name": service.service_name,
+                "path": node.path,
+                "tree_version": service.current_tree_version + 1,
+            })
         service.current_tree_version += 1
         self.db.add(service)
+        return events

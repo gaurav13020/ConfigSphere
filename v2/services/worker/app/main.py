@@ -15,6 +15,7 @@ from app.core.jira_client import JiraClient
 from app.core.jira_sync import JiraSyncProcessor
 from app.core.processor import PropagationProcessor
 from app.db import SessionLocal
+from app.kafka_producer import InvalidationPublisher
 
 logger = logging.getLogger(__name__)
 
@@ -40,13 +41,16 @@ def build_consumer() -> Consumer:
     )
 
 
+_publisher = InvalidationPublisher()
+
+
 def handle_implement_message(payload: dict) -> None:
     correlation_id = payload.get("correlation_id")
     if not correlation_id:
         return
     with SessionLocal() as db:
         processor = PropagationProcessor(db, ConfigPayloadStore())
-        processor.process_job(correlation_id)
+        processor.process_job(correlation_id, _publisher)
         if processor._pending_sync_event_ids:
             producer = get_producer()
             for sid in processor._pending_sync_event_ids:
@@ -99,4 +103,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
