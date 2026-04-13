@@ -19,7 +19,25 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.drop_column("service_api_keys", "last_used_at")
+    # 0001_initial uses create_all() from the current ORM which already omits
+    # last_used_at, so the column may not exist.  Only drop if present.
+    conn = op.get_bind()
+    conn.execute(
+        sa.text(
+            """
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'service_api_keys'
+                      AND column_name = 'last_used_at'
+                ) THEN
+                    ALTER TABLE service_api_keys DROP COLUMN last_used_at;
+                END IF;
+            END $$;
+            """
+        )
+    )
 
 
 def downgrade() -> None:
