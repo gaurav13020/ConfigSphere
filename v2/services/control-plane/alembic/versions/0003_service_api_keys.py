@@ -17,59 +17,48 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # service_api_keys (without last_used_at) is already created by 0001_initial via
-    # Base.metadata.create_all().  Use IF NOT EXISTS / existence guards for idempotency.
-    conn = op.get_bind()
-    conn.execute(
-        sa.text(
-            """
-            CREATE TABLE IF NOT EXISTS service_api_keys (
-                api_key_id   UUID         NOT NULL,
-                service_id   UUID         NOT NULL,
-                key_name     VARCHAR(200) NOT NULL,
-                token_prefix VARCHAR(32)  NOT NULL,
-                token_hash   VARCHAR(128) NOT NULL,
-                created_by   UUID,
-                last_used_at TIMESTAMP,
-                revoked_at   TIMESTAMP,
-                created_at   TIMESTAMP    NOT NULL,
-                CONSTRAINT pk_service_api_keys PRIMARY KEY (api_key_id),
-                CONSTRAINT fk_service_api_keys_service_id_services
-                    FOREIGN KEY (service_id) REFERENCES services (service_id),
-                CONSTRAINT fk_service_api_keys_created_by_users
-                    FOREIGN KEY (created_by) REFERENCES users (user_id)
-            )
-            """
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    if not inspector.has_table("service_api_keys"):
+        op.create_table(
+            "service_api_keys",
+            sa.Column("api_key_id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
+            sa.Column("service_id", postgresql.UUID(as_uuid=True), nullable=False),
+            sa.Column("key_name", sa.String(length=200), nullable=False),
+            sa.Column("token_prefix", sa.String(length=32), nullable=False),
+            sa.Column("token_hash", sa.String(length=128), nullable=False),
+            sa.Column("created_by", postgresql.UUID(as_uuid=True), nullable=True),
+            sa.Column("last_used_at", sa.DateTime(), nullable=True),
+            sa.Column("revoked_at", sa.DateTime(), nullable=True),
+            sa.Column("created_at", sa.DateTime(), nullable=False),
+            sa.ForeignKeyConstraint(["service_id"], ["services.service_id"], name="fk_service_api_keys_service_id_services"),
+            sa.ForeignKeyConstraint(["created_by"], ["users.user_id"], name="fk_service_api_keys_created_by_users"),
         )
-    )
-    conn.execute(
-        sa.text(
-            "CREATE INDEX IF NOT EXISTS ix_service_api_keys_service_created "
-            "ON service_api_keys (service_id, created_at)"
+
+    existing_ix = [ix["name"] for ix in inspector.get_indexes("service_api_keys")] if inspector.has_table("service_api_keys") else []
+    if "ix_service_api_keys_service_created" not in existing_ix:
+        op.create_index(
+            "ix_service_api_keys_service_created",
+            "service_api_keys",
+            ["service_id", "created_at"],
+            unique=False,
         )
-    )
-    conn.execute(
-        sa.text(
-            "CREATE INDEX IF NOT EXISTS ix_service_api_keys_token_hash "
-            "ON service_api_keys (token_hash)"
+    if "ix_service_api_keys_token_hash" not in existing_ix:
+        op.create_index(
+            "ix_service_api_keys_token_hash",
+            "service_api_keys",
+            ["token_hash"],
+            unique=False,
         )
-    )
-    conn.execute(
-        sa.text(
-            """
-            DO $$
-            BEGIN
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_constraint
-                    WHERE conname = 'uq_service_api_keys_token_hash'
-                ) THEN
-                    ALTER TABLE service_api_keys
-                        ADD CONSTRAINT uq_service_api_keys_token_hash UNIQUE (token_hash);
-                END IF;
-            END $$;
-            """
+
+    existing_uq = [c["name"] for c in inspector.get_unique_constraints("service_api_keys")] if inspector.has_table("service_api_keys") else []
+    if "uq_service_api_keys_token_hash" not in existing_uq:
+        op.create_unique_constraint(
+            "uq_service_api_keys_token_hash",
+            "service_api_keys",
+            ["token_hash"],
         )
-    )
 
 
 def downgrade() -> None:

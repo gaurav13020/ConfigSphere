@@ -27,3 +27,8 @@ class RollbackRequestedEvent(BaseEvent):
     service_id: UUID
     target_config_node_id: UUID
 
+
+class JiraSyncRequestedEvent(BaseEvent):
+    event_type: Literal["JIRA_SYNC_REQUESTED"] = "JIRA_SYNC_REQUESTED"
+    sync_event_id: UUID
+

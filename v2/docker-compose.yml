@@ -134,6 +134,15 @@ services:
       POSTGRES_PORT: 5432
       DYNAMODB_ENDPOINT: http://dynamodb-local:8000
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      JIRA_ENABLED: ${JIRA_ENABLED:-false}
+      JIRA_BASE_URL: ${JIRA_BASE_URL:-}
+      JIRA_USER_EMAIL: ${JIRA_USER_EMAIL:-}
+      JIRA_API_TOKEN: ${JIRA_API_TOKEN:-}
+      JIRA_PROJECT_KEY: ${JIRA_PROJECT_KEY:-CS}
+      JIRA_ISSUE_TYPE: ${JIRA_ISSUE_TYPE:-Task}
+      JIRA_TRANSITION_APPROVED: ${JIRA_TRANSITION_APPROVED:-}
+      JIRA_TRANSITION_IMPLEMENTING: ${JIRA_TRANSITION_IMPLEMENTING:-}
+      JIRA_TRANSITION_IMPLEMENTED: ${JIRA_TRANSITION_IMPLEMENTED:-}
     depends_on:
       postgres:
         condition: service_healthy
@@ -162,6 +171,7 @@ services:
       - delivery
     volumes:
       - ./frontend:/app
+      - /app/node_modules
 
 volumes:
   postgres_data:
