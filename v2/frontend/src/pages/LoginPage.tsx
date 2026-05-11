@@ -51,12 +51,26 @@ const LoginPage = () => {
             Continue in Dev Mode
           </Button>
 
-          <Button variant="outlined" size="large" startIcon={<Key />} href={authLinks.login}>
-            Sign in with Keycloak
-          </Button>
-          <Button variant="text" size="large" startIcon={<PersonAdd />} href={authLinks.signup}>
-            Create account
-          </Button>
+          {authLinks.login ? (
+            <>
+              <Button variant="outlined" size="large" startIcon={<Key />} href={authLinks.login}>
+                Sign in with Keycloak
+              </Button>
+              <Button variant="text" size="large" startIcon={<PersonAdd />} href={authLinks.signup || undefined}>
+                Create account
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outlined" size="large" startIcon={<Key />} href={authLinks.adminConsole}>
+                Open Keycloak Admin Console
+              </Button>
+              <Typography variant="body2" sx={{ color: '#64748b' }}>
+                Browser-based Keycloak sign-in is not fully configured in this local slice yet. Use Dev Mode for the app,
+                or configure `VITE_KEYCLOAK_CLIENT_ID` and `VITE_KEYCLOAK_REDIRECT_URI` to enable a real OIDC login URL.
+              </Typography>
+            </>
+          )}
         </Stack>
       </Card>
     </Box>
@@ -64,4 +78,3 @@ const LoginPage = () => {
 };
 
 export default LoginPage;
-

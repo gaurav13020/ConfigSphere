@@ -23,6 +23,8 @@ const CONTROL_PLANE_URL = import.meta.env.VITE_CONTROL_PLANE_URL || 'http://loca
 const DELIVERY_URL = import.meta.env.VITE_DELIVERY_URL || 'http://localhost:8101';
 const KEYCLOAK_URL = import.meta.env.VITE_KEYCLOAK_URL || 'http://localhost:8080';
 const KEYCLOAK_REALM = import.meta.env.VITE_KEYCLOAK_REALM || 'configsphere';
+const KEYCLOAK_CLIENT_ID = import.meta.env.VITE_KEYCLOAK_CLIENT_ID || '';
+const KEYCLOAK_REDIRECT_URI = import.meta.env.VITE_KEYCLOAK_REDIRECT_URI || '';
 
 const controlPlane = axios.create({
   baseURL: CONTROL_PLANE_URL,
@@ -52,9 +54,25 @@ delivery.interceptors.request.use(attachAuth);
 const deliveryHeaders = (configToken?: string) =>
   configToken ? { 'X-Config-Token': configToken } : undefined;
 
+const buildKeycloakAuthLink = (action: 'login' | 'signup') => {
+  if (!KEYCLOAK_CLIENT_ID || !KEYCLOAK_REDIRECT_URI) {
+    return null;
+  }
+  const authUrl = new URL(`${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/auth`);
+  authUrl.searchParams.set('client_id', KEYCLOAK_CLIENT_ID);
+  authUrl.searchParams.set('redirect_uri', KEYCLOAK_REDIRECT_URI);
+  authUrl.searchParams.set('response_type', 'code');
+  authUrl.searchParams.set('scope', 'openid');
+  if (action === 'signup') {
+    authUrl.searchParams.set('kc_action', 'register');
+  }
+  return authUrl.toString();
+};
+
 export const authLinks = {
-  login: `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/protocol/openid-connect/auth`,
-  signup: `${KEYCLOAK_URL}/realms/${KEYCLOAK_REALM}/login-actions/registration`,
+  login: buildKeycloakAuthLink('login'),
+  signup: buildKeycloakAuthLink('signup'),
+  adminConsole: `${KEYCLOAK_URL}/admin/`,
 };
 
 export const v2Api = {

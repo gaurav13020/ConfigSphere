@@ -57,6 +57,18 @@ const parseConfigText = (value: string): Record<string, string> => {
 
 const formatConfig = (config: Record<string, unknown>) => JSON.stringify(config, null, 2);
 
+const normalizeConfig = (config: Record<string, string>) =>
+  JSON.stringify(
+    Object.keys(config)
+      .sort()
+      .reduce<Record<string, string>>((acc, key) => {
+        acc[key] = config[key];
+        return acc;
+      }, {}),
+    null,
+    2
+  );
+
 const stringifyValue = (value: unknown) => {
   if (value === null || value === undefined) return '—';
   if (typeof value === 'string') return value;
@@ -117,6 +129,14 @@ const deriveOverridesFromEffectiveConfig = (
   return overrides;
 };
 
+const buildEffectiveConfig = (
+  localOverrides: Record<string, string>,
+  parentEffectiveConfig: Record<string, string>
+) => ({
+  ...parentEffectiveConfig,
+  ...localOverrides,
+});
+
 const buildRevisionDraft = (
   revision: Revision | undefined,
   originalConfig: DeliveryConfig | null,
@@ -124,14 +144,14 @@ const buildRevisionDraft = (
   isRootNode: boolean
 ) => {
   const explicitOverrides = revision?.proposed_overrides || {};
-  const hasExplicitOverrides = Object.keys(explicitOverrides).length > 0;
   const parentEffectiveConfig = isRootNode ? {} : parentConfig?.materializedConfig || {};
-  const fallbackOverrides = originalConfig
-    ? deriveOverridesFromEffectiveConfig(originalConfig.materializedConfig, parentEffectiveConfig)
-    : {};
+  const fallbackEffectiveConfig = originalConfig?.materializedConfig || {};
+  const editableConfig = revision
+    ? buildEffectiveConfig(explicitOverrides, parentEffectiveConfig)
+    : fallbackEffectiveConfig;
 
   return {
-    proposed_overrides: formatConfig(hasExplicitOverrides ? explicitOverrides : fallbackOverrides),
+    proposed_overrides: formatConfig(editableConfig),
     change_note: revision?.change_note || '',
   };
 };
@@ -178,6 +198,8 @@ const RequestsPage = () => {
     proposed_overrides: '{\n  "timeout_ms": "1500"\n}',
     change_note: '',
   });
+  const [createTargetConfig, setCreateTargetConfig] = useState<DeliveryConfig | null>(null);
+  const [createParentConfig, setCreateParentConfig] = useState<DeliveryConfig | null>(null);
 
   const selectedService = useMemo(
     () => services.find((service) => service.service_id === selectedServiceId) || null,
@@ -265,6 +287,50 @@ const RequestsPage = () => {
     }
   }, [selectedServiceId]);
 
+  useEffect(() => {
+    const hydrateCreateDraft = async () => {
+      if (!selectedService || !requestDraft.target_config_node_id) {
+        setCreateTargetConfig(null);
+        setCreateParentConfig(null);
+        return;
+      }
+
+      const targetNode = (nodesByService[selectedService.service_id] || []).find(
+        (node) => node.config_node_id === requestDraft.target_config_node_id
+      );
+
+      if (!targetNode) {
+        setCreateTargetConfig(null);
+        setCreateParentConfig(null);
+        return;
+      }
+
+      try {
+        const parentNode = targetNode.parent_config_node_id
+          ? (nodesByService[selectedService.service_id] || []).find(
+              (node) => node.config_node_id === targetNode.parent_config_node_id
+            ) || null
+          : null;
+        const [config, parent] = await Promise.all([
+          v2Api.getConfig(selectedService.service_name, targetNode.path),
+          parentNode ? v2Api.getConfig(selectedService.service_name, parentNode.path) : Promise.resolve(null),
+        ]);
+        setCreateTargetConfig(config);
+        setCreateParentConfig(parent);
+        setRequestDraft((current) => ({
+          ...current,
+          proposed_overrides: formatConfig(config.materializedConfig),
+        }));
+      } catch (_err) {
+        setCreateTargetConfig(null);
+        setCreateParentConfig(null);
+        setError('Unable to prefill the selected node config.');
+      }
+    };
+
+    hydrateCreateDraft();
+  }, [selectedService, requestDraft.target_config_node_id, nodesByService]);
+
   const openRequest = async (request: ChangeRequest) => {
     setError(null);
     try {
@@ -320,7 +386,7 @@ const RequestsPage = () => {
     [activeRequest?.request.latest_diff_summary]
   );
   const latestRevision = activeRequest?.revisions[0];
-  const revisionOverrides = useMemo(() => {
+  const editedEffectiveConfig = useMemo(() => {
     try {
       return parseConfigText(revisionDraft.proposed_overrides);
     } catch {
@@ -328,15 +394,42 @@ const RequestsPage = () => {
     }
   }, [revisionDraft.proposed_overrides]);
   const effectiveConfigPreview = useMemo(() => {
-    if (!activeNode) return null;
-    if (!revisionOverrides) return null;
-    const baseConfig = activeNode.parent_config_node_id ? parentConfig?.materializedConfig || {} : {};
-    return { ...baseConfig, ...revisionOverrides };
-  }, [activeNode, parentConfig, revisionOverrides]);
+    if (!editedEffectiveConfig) return null;
+    return editedEffectiveConfig;
+  }, [editedEffectiveConfig]);
   const canEditRevision =
     !!activeRequest &&
     canRole(activeRequest.request.service_id, ['CONFIG_AUTHOR', 'CONFIG_ADMIN']) &&
     !['IMPLEMENTING', 'IMPLEMENTED', 'REJECTED'].includes(activeRequest.request.status);
+  const savedRevisionBaseline = useMemo(
+    () =>
+      buildRevisionDraft(
+        latestRevision,
+        originalConfig,
+        parentConfig,
+        !activeNode?.parent_config_node_id
+      ),
+    [latestRevision, originalConfig, parentConfig, activeNode?.parent_config_node_id]
+  );
+  const hasUnsavedRevisionChanges = useMemo(() => {
+    try {
+      const currentConfig = normalizeConfig(parseConfigText(revisionDraft.proposed_overrides));
+      const savedConfig = normalizeConfig(parseConfigText(savedRevisionBaseline.proposed_overrides));
+      return currentConfig !== savedConfig || (revisionDraft.change_note || '') !== (savedRevisionBaseline.change_note || '');
+    } catch {
+      return false;
+    }
+  }, [revisionDraft, savedRevisionBaseline]);
+
+  const saveRevisionDraft = async () => {
+    if (!activeRequest) return;
+    const fullConfig = parseConfigText(revisionDraft.proposed_overrides);
+    const parentEffectiveConfig = activeNode?.parent_config_node_id ? parentConfig?.materializedConfig || {} : {};
+    await v2Api.createRevision(activeRequest.request.request_id, {
+      proposed_overrides: deriveOverridesFromEffectiveConfig(fullConfig, parentEffectiveConfig),
+      change_note: revisionDraft.change_note || undefined,
+    });
+  };
 
   return (
     <AppLayout>
@@ -423,8 +516,19 @@ const RequestsPage = () => {
                   </ToggleButtonGroup>
                   <Stack direction="row" spacing={1} flexWrap="wrap">
                     <Button startIcon={<Publish />} variant="contained" disabled={!requestPermissions.canSubmit} onClick={async () => {
-                      await v2Api.submitRequest(activeRequest.request.request_id);
-                      await refreshActiveRequest();
+                      try {
+                        if (hasUnsavedRevisionChanges && canEditRevision) {
+                          await saveRevisionDraft();
+                        }
+                        await v2Api.submitRequest(activeRequest.request.request_id);
+                        await refreshActiveRequest();
+                      } catch (_err) {
+                        if (axios.isAxiosError(_err)) {
+                          setError(_err.response?.data?.detail || 'Unable to submit request.');
+                        } else {
+                          setError('Unable to submit request.');
+                        }
+                      }
                     }}>
                       Submit
                     </Button>
@@ -576,7 +680,7 @@ const RequestsPage = () => {
                   <Box>
                     <Typography variant="h6">Revision editor</Typography>
                     <Typography variant="body2" sx={{ color: '#64748b', mt: 0.5 }}>
-                      Edit only this node&apos;s local overrides. Any key missing here is inherited automatically from the parent.
+                      Start from the node&apos;s full visible config, edit what you want, and we will store only the true local overrides under the hood.
                     </Typography>
                   </Box>
                   {latestRevision ? (
@@ -589,14 +693,14 @@ const RequestsPage = () => {
                   <Grid container spacing={2}>
                     <Grid item xs={12} lg={6}>
                       <TextField
-                        label="Local overrides JSON"
+                        label="Editable effective config JSON"
                         multiline
                         minRows={12}
                         fullWidth
                         value={revisionDraft.proposed_overrides}
                         onChange={(event) => setRevisionDraft((current) => ({ ...current, proposed_overrides: event.target.value }))}
                         disabled={!canEditRevision}
-                        helperText="Example: if the parent has {a,b,c} and you enter only {e:g}, this node overrides only e and inherits the rest."
+                        helperText="Show the whole config here for clarity. Matching parent values are automatically stripped out before the revision is saved."
                       />
                     </Grid>
                     <Grid item xs={12} lg={6}>
@@ -619,9 +723,9 @@ const RequestsPage = () => {
                           border: '1px solid rgba(148,163,184,0.16)',
                         }}
                       >
-                        {revisionOverrides
+                        {editedEffectiveConfig
                           ? formatConfig(effectiveConfigPreview || {})
-                          : 'Invalid JSON. Fix the overrides to preview the effective config.'}
+                          : 'Invalid JSON. Fix the config to preview the effective result.'}
                       </Box>
                     </Grid>
                   </Grid>
@@ -637,12 +741,7 @@ const RequestsPage = () => {
                       disabled={!canEditRevision}
                       onClick={() =>
                         setRevisionDraft(
-                          buildRevisionDraft(
-                            activeRequest.revisions[0],
-                            originalConfig,
-                            parentConfig,
-                            !activeNode?.parent_config_node_id
-                          )
+                          savedRevisionBaseline
                         )
                       }
                     >
@@ -653,10 +752,7 @@ const RequestsPage = () => {
                       disabled={!canEditRevision}
                       onClick={async () => {
                         try {
-                          await v2Api.createRevision(activeRequest.request.request_id, {
-                            proposed_overrides: parseConfigText(revisionDraft.proposed_overrides),
-                            change_note: revisionDraft.change_note || undefined,
-                          });
+                          await saveRevisionDraft();
                           await refreshActiveRequest();
                         } catch (_err) {
                           if (axios.isAxiosError(_err)) {
@@ -760,13 +856,31 @@ const RequestsPage = () => {
               ))}
             </TextField>
             <TextField
-              label="Local overrides JSON"
+              label="Editable effective config JSON"
               multiline
               minRows={10}
               value={requestDraft.proposed_overrides}
               onChange={(event) => setRequestDraft({ ...requestDraft, proposed_overrides: event.target.value })}
-              helperText="Enter only the keys this node should override. Everything else is inherited from the parent."
+              helperText="The selected node's full config is preloaded here. Edit naturally and we will derive the minimal local overrides before saving."
             />
+            <Grid container spacing={2}>
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                  Current node config
+                </Typography>
+                <Box component="pre" sx={{ m: 0, p: 2, borderRadius: 4, bgcolor: '#0f172a', color: '#e2e8f0', minHeight: 180, overflow: 'auto' }}>
+                  {formatConfig(createTargetConfig?.materializedConfig || {})}
+                </Box>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, mb: 1 }}>
+                  Parent inherited baseline
+                </Typography>
+                <Box component="pre" sx={{ m: 0, p: 2, borderRadius: 4, bgcolor: '#0f172a', color: '#e2e8f0', minHeight: 180, overflow: 'auto' }}>
+                  {formatConfig(createParentConfig?.materializedConfig || {})}
+                </Box>
+              </Grid>
+            </Grid>
             <TextField
               label="Change note"
               value={requestDraft.change_note}
@@ -781,13 +895,19 @@ const RequestsPage = () => {
             onClick={async () => {
               if (!selectedServiceId || !requestDraft.target_config_node_id) return;
               try {
+                const selectedNode = currentServiceNodes.find((node) => node.config_node_id === requestDraft.target_config_node_id) || null;
+                const parentEffectiveConfig =
+                  selectedNode?.parent_config_node_id ? createParentConfig?.materializedConfig || {} : {};
                 const request = await v2Api.createChangeRequest({
                   service_id: selectedServiceId,
                   target_config_node_id: requestDraft.target_config_node_id,
                   assigned_reviewer_id: requestDraft.assigned_reviewer_id || null,
                 });
                 await v2Api.createRevision(request.request_id, {
-                  proposed_overrides: parseConfigText(requestDraft.proposed_overrides),
+                  proposed_overrides: deriveOverridesFromEffectiveConfig(
+                    parseConfigText(requestDraft.proposed_overrides),
+                    parentEffectiveConfig
+                  ),
                   change_note: requestDraft.change_note,
                 });
                 setCreateOpen(false);
@@ -797,6 +917,8 @@ const RequestsPage = () => {
                   proposed_overrides: '{\n  "timeout_ms": "1500"\n}',
                   change_note: '',
                 });
+                setCreateTargetConfig(null);
+                setCreateParentConfig(null);
                 await loadRequestsPage();
               } catch (_err) {
                 setError('Unable to create change request.');

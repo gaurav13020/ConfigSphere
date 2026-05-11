@@ -70,23 +70,6 @@ def create_change_request(
             action_type="CREATE",
         )
     )
-    sync_event = JiraSyncEvent(
-            request_id=request.request_id,
-            event_type="CREATE_ISSUE",
-            payload_json={"request_id": str(request.request_id)},
-            sync_status=SyncStatus.PENDING,
-        )
-    db.add(sync_event)
-    db.flush()
-    if kafka:
-        kafka.publish(
-            "jira-sync-events",
-            JiraSyncRequestedEvent(
-                sync_event_id=sync_event.sync_event_id,
-                correlation_id=str(sync_event.sync_event_id),
-                created_at=datetime.utcnow(),
-            ).model_dump(mode="json"),
-        )
     return request
 
 
@@ -225,8 +208,8 @@ def submit_request(db: Session, request: ConfigChangeRequest, actor_id: uuid.UUI
     db.add(ConfigChangeAction(request_id=request.request_id, revision_id=request.current_revision_id, actor_id=actor_id, action_type="SUBMIT", note=note))
     sync_event = JiraSyncEvent(
         request_id=request.request_id,
-        event_type="UPDATE_STATUS",
-        payload_json={"status": request.status.value},
+        event_type="CREATE_ISSUE" if not request.jira_issue_key else "UPDATE_STATUS",
+        payload_json={"status": request.status.value, "request_id": str(request.request_id)},
         sync_status=SyncStatus.PENDING,
     )
     db.add(sync_event)
